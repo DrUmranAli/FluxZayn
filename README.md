@@ -1,6 +1,4 @@
-# FluxZayn
-FluxZayn LayerDiffusion
-# FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
+# FluxZayn: FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
 
 This extension integrates FLUX-based image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
 
