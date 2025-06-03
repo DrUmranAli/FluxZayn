@@ -322,9 +322,9 @@ class TransparentVAE(torch.nn.Module):
 
 # --- START: run_layerdiffuse function ---
 def run_layerdiffuse(
-    flux_model_id_or_path, vae_path_transparent, lora_path_layerdiffuse, 
+    flux_model_id_or_path, vae_path_transparent, lora_path_layerdiffuse,
     clip_encoder_path, t5_encoder_path,
-    prompt, neg_prompt, input_image_pil, width, height, num_inference_steps, 
+    prompt, neg_prompt, input_image_pil, width, height, num_inference_steps,
     guidance_scale, image_count, seed, lora_strength, img2img_strength
 ):
     print("--- [FLUX Script] Starting FLUX LayerDiffuse Generation (with TransparentVAE logic) ---")
@@ -344,7 +344,7 @@ def run_layerdiffuse(
         effective_seed = torch.randint(0, 2**32 - 1, (1,)).item()
     else:
         effective_seed = int(seed)
-    
+
     is_img2img = input_image_pil is not None
     mode_name = "Image-to-Image" if is_img2img else "Text-to-Image"
     print(f"  [FLUX Script] Mode: {mode_name}")
@@ -355,7 +355,6 @@ def run_layerdiffuse(
         if hasattr(shared, 'opts') and hasattr(shared.opts, 'outdir_img2img_samples') and shared.opts.outdir_img2img_samples:
             base_output_dir = shared.opts.outdir_img2img_samples
         else:
-            # Fallback if shared.opts.outdir_img2img_samples is not set or shared/opts is not available
             forge_root_for_save = paths.script_path if hasattr(paths, 'script_path') and paths.script_path else os.getcwd()
             base_output_dir = os.path.join(forge_root_for_save, "outputs", "img2img-images")
     else: # txt2img
@@ -374,7 +373,7 @@ def run_layerdiffuse(
         print(f"  [FLUX Script] Ensured save directory exists: {final_save_dir}")
     except OSError as e_mkdir:
         print(f"  [FLUX Script] ERROR creating save directory {final_save_dir}: {e_mkdir}. Images will not be saved.")
-        final_save_dir = None 
+        final_save_dir = None
     # --- End Path Setup ---
 
     def create_error_image(message):
@@ -382,7 +381,7 @@ def run_layerdiffuse(
         print(f"  [FLUX Script] Error Image Created: {message}")
         return [(err_img, f"Error: {message}")]
 
-    pipe = None 
+    pipe = None
     trans_vae_instance = None
 
     try:
@@ -395,9 +394,9 @@ def run_layerdiffuse(
             resolved_model_path = "black-forest-labs/FLUX.1-dev"
         else: resolved_model_path = "black-forest-labs/FLUX.1-dev"
         print(f"  [FLUX Script] Loading base FLUX from: {resolved_model_path}")
-        
+
         pipe = pipeline_class.from_pretrained(resolved_model_path, torch_dtype=dtype)
-        
+
         if clip_encoder_path and os.path.isfile(clip_encoder_path) and hasattr(pipe, 'text_encoder'):
             print(f"  [FLUX Script] Loading custom CLIP weights from: {clip_encoder_path}")
             pipe.text_encoder.load_state_dict(load_safetensors(clip_encoder_path, device="cpu"), strict=False)
@@ -406,7 +405,7 @@ def run_layerdiffuse(
             pipe.text_encoder_2.load_state_dict(load_safetensors(t5_encoder_path, device="cpu"), strict=False)
         if lora_path_layerdiffuse and os.path.isfile(lora_path_layerdiffuse):
             print(f"  [FLUX Script] Loading Layer LoRA from: {lora_path_layerdiffuse}")
-            pipe.load_lora_weights(lora_path_layerdiffuse, lora_scale=float(lora_strength)) 
+            pipe.load_lora_weights(lora_path_layerdiffuse, lora_scale=float(lora_strength))
 
         if vae_path_transparent and os.path.isfile(vae_path_transparent) and pipe.vae is not None:
             print(f"  [FLUX Script] Initializing TransparentVAE with: {vae_path_transparent}")
@@ -419,12 +418,12 @@ def run_layerdiffuse(
                 print("  [FLUX Script] TransparentVAE initialized.")
             except Exception as e_tvae:
                 print(f"  [FLUX Script] ERROR initializing TransparentVAE: {e_tvae}\n{traceback.format_exc()}")
-        
+
         pipe.to(device)
         if trans_vae_instance: trans_vae_instance.to(device)
         print(f"  [FLUX Script] Models moved to {device}.")
         pipe.enable_model_cpu_offload()
-        
+
         print(f"  [FLUX Script] Using pipeline's default scheduler (handles 'mu' parameter correctly)")
 
         all_output_images_with_labels = []
@@ -433,34 +432,46 @@ def run_layerdiffuse(
             image_generator = torch.Generator(device=device).manual_seed(current_seed)
             print(f"  [FLUX Script] Image {i+1}/{image_count}, Seed: {current_seed}")
 
+            # --- MODIFIED: Conditional call_params construction ---
             call_params = {
-                "prompt": prompt or " ", "negative_prompt": neg_prompt or None,
-                "width": width, "height": height, "num_inference_steps": num_inference_steps,
-                "guidance_scale": guidance_scale, "generator": image_generator,
+                "prompt": prompt or " ",
+                "width": width, "height": height,
+                "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
+                "generator": image_generator,
             }
-            
+
             if is_img2img:
                 call_params["strength"] = img2img_strength
+                # For FluxImg2ImgPipeline, 'negative_prompt' is not a direct __call__ argument.
+                # If the user provided one, we print a warning.
+                if neg_prompt and neg_prompt.strip():
+                     print(f"  [FLUX Script] Warning: Negative prompt '{neg_prompt}' provided for Image-to-Image mode. "
+                           f"FluxImg2ImgPipeline does not accept 'negative_prompt' as a direct argument. "
+                           f"It will be ignored for the pipeline call.")
+            else: # This is FluxPipeline (txt2img)
+                if neg_prompt and neg_prompt.strip(): # Only add if it has content
+                    call_params["negative_prompt"] = neg_prompt
+            # --- END MODIFIED ---
+
+            if is_img2img:
                 if trans_vae_instance and input_image_pil:
                     print("  [FLUX Script] Img2Img: Encoding with TransparentVAE")
                     try:
                         input_pil_rgba = input_image_pil.convert("RGBA")
                         img_rgba_01_bchw = transforms.ToTensor()(input_pil_rgba).unsqueeze(0).to(device=device, dtype=dtype)
-                        
-                        img_rgb_prem_01 = img_rgba_01_bchw[:, :3] * img_rgba_01_bchw[:, 3:4] 
-                        img_rgb_m11_bchw = (img_rgb_prem_01 * 2.0 - 1.0) 
-
+                        img_rgb_prem_01 = img_rgba_01_bchw[:, :3] * img_rgba_01_bchw[:, 3:4]
+                        img_rgb_m11_bchw = (img_rgb_prem_01 * 2.0 - 1.0)
                         rgba_np_hwc_uint8 = (img_rgba_01_bchw.squeeze(0).permute(1,2,0) * 255).byte().cpu().numpy()
-                        padded_rgb_np_hwc_uint8 = pad_rgb(rgba_np_hwc_uint8) 
+                        padded_rgb_np_hwc_uint8 = pad_rgb(rgba_np_hwc_uint8)
                         padded_img_rgb_01_bchw = transforms.ToTensor()(Image.fromarray(padded_rgb_np_hwc_uint8)).unsqueeze(0).to(device=device, dtype=dtype)
-
                         with torch.no_grad():
                             initial_latents = trans_vae_instance.encode(
                                 img_rgba_01_bchw, img_rgb_m11_bchw, padded_img_rgb_01_bchw, use_offset=True
                             )
                         call_params["latents"] = initial_latents
-                        call_params["image"] = input_image_pil.convert("RGB") 
-                    except Exception as e_enc: 
+                        call_params["image"] = input_image_pil.convert("RGB") # FluxImg2Img might still need 'image'
+                    except Exception as e_enc:
                         print(f"  [FLUX Script] TVAE Encode error: {e_enc}\n{traceback.format_exc()}")
                         return create_error_image(f"TVAE Encode: {e_enc}")
                 elif input_image_pil:
@@ -468,13 +479,19 @@ def run_layerdiffuse(
                 else: return create_error_image("Img2Img missing input.")
 
             call_params["output_type"] = "latent"
+
+            # Final check to ensure 'negative_prompt' is not passed to FluxImg2ImgPipeline
+            # This is more of a safeguard; the logic above should already handle it.
+            if is_img2img and "negative_prompt" in call_params:
+                del call_params["negative_prompt"]
+
             output_latents = pipe(**call_params).images
-            
+
             unpacked_latents = pipe._unpack_latents(output_latents, height, width, pipe.vae_scale_factor)
             denormalized_latents = (unpacked_latents / pipe.vae.config.scaling_factor)
             if hasattr(pipe.vae.config, "shift_factor") and pipe.vae.config.shift_factor != 0:
                  denormalized_latents += pipe.vae.config.shift_factor
-            
+
             generated_pil_images_for_this_seed = []
             label_prefix = ""
 
@@ -484,12 +501,12 @@ def run_layerdiffuse(
                     with torch.no_grad():
                         tvae_dec_device = next(trans_vae_instance.decoder.parameters()).device
                         _, decoded_rgba_01 = trans_vae_instance.decode(denormalized_latents.to(tvae_dec_device, trans_vae_instance.dtype), aug=True)
-                    
+
                     for idx_in_batch, single_rgba_t in enumerate(decoded_rgba_01):
                         pil_image = transforms.ToPILImage()(single_rgba_t.cpu().float().clamp(0,1))
                         generated_pil_images_for_this_seed.append(pil_image)
-                        
-                        if final_save_dir: # Check if directory creation was successful
+
+                        if final_save_dir:
                             current_date_str = datetime.datetime.now().strftime("%d%m%Y")
                             filename_suffix = f"_{idx_in_batch}" if len(decoded_rgba_01) > 1 else ""
                             filename = f"FluxZayn_{current_date_str}_{current_seed}{filename_suffix}.png"
@@ -508,12 +525,12 @@ def run_layerdiffuse(
                 with torch.no_grad():
                     decoded_rgb_m11 = pipe.vae.decode(denormalized_latents.to(pipe.vae.dtype)).sample
                 decoded_rgb_01 = (decoded_rgb_m11 / 2 + 0.5).clamp(0, 1)
-                
+
                 for idx_in_batch, single_rgb_t in enumerate(decoded_rgb_01):
                     pil_image = transforms.ToPILImage()(single_rgb_t.cpu())
                     generated_pil_images_for_this_seed.append(pil_image)
 
-                    if final_save_dir: # Check if directory creation was successful
+                    if final_save_dir:
                         current_date_str = datetime.datetime.now().strftime("%d%m%Y")
                         filename_suffix = f"_{idx_in_batch}" if len(decoded_rgb_01) > 1 else ""
                         filename = f"FluxZayn_{current_date_str}_{current_seed}{filename_suffix}.png"
@@ -524,9 +541,9 @@ def run_layerdiffuse(
                         except Exception as e_save:
                             print(f"  [FLUX Script] ERROR saving image {save_path}: {e_save}")
                 label_prefix = "Composite"
-            
+
             all_output_images_with_labels.extend([(img, f"{label_prefix} (Seed {current_seed})") for img in generated_pil_images_for_this_seed])
-        
+
         if not all_output_images_with_labels: return create_error_image("No images produced.")
         print(f"--- [FLUX Script] Generation Finished. Items: {len(all_output_images_with_labels)} ---")
         return all_output_images_with_labels
@@ -692,6 +709,7 @@ def create_flux_layerdiffuse_tab_internal_script():
                     "- **Layer Separation:** Requires correct TransparentVAE weights and a compatible Layer LoRA."
                     "- **Img2Img Input:** For best layered results with TransparentVAE, provide an RGBA input image."
                     "- **Performance:** FLUX models often perform well with fewer steps (20-30) and lower CFG (3-5)."
+                    "- **Touch Grass:** It will help with your render times."
                 )
         
         inputs_list_ui = [
