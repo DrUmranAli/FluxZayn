@@ -1,4 +1,3 @@
-
 import gradio as gr
 import torch
 import torch.nn as nn 
@@ -11,8 +10,9 @@ import random
 import html 
 import cv2 
 import torchvision.transforms as transforms 
-from typing import Optional, List, Union, Dict, Any # Added Optional and others commonly used in diffusers
+from typing import Optional, List, Union, Dict, Any
 from modules import script_callbacks, shared, paths
+import datetime # Added for image filename timestamp
 
 # --- START: Dependencies Check and Dummy Definitions ---
 try:
@@ -61,9 +61,9 @@ except ImportError as e:
     AutoencoderKL = object
     UNetMidBlock2D = get_down_block = get_up_block = object
     DiagonalGaussianDistribution = object
-    ConfigMixin = register_to_config = object # Make sure this is available if UNet1024 inherits it
-    ModelMixin = object # Make sure this is available if UNet1024 inherits it
-    EulerDiscreteScheduler = LMSDiscreteScheduler = DDIMScheduler = object # EulerAncestral needs to be defined too if used
+    ConfigMixin = register_to_config = object 
+    ModelMixin = object 
+    EulerDiscreteScheduler = LMSDiscreteScheduler = DDIMScheduler = object 
 
 try:
     from safetensors.torch import load_file as load_safetensors
@@ -72,15 +72,33 @@ except ImportError:
     print(f"[FLUX LayerDiffuse Script] CRITICAL IMPORT ERROR: Safetensors not found. Install.py should run.")
     SAFETENSORS_AVAILABLE = False
     def load_safetensors(*args, **kwargs): raise ImportError("Safetensors not available")
-# --- END: Dependencies Check ---
+
+# --- Dummy `shared` and `paths` for execution outside Forge if necessary ---
+if 'shared' not in globals():
+    print("[FLUX Script] `shared` not found, creating dummy object for path determination.")
+    class DummyShared:
+        class DummyOpts:
+            outdir_txt2img_samples = None
+            outdir_img2img_samples = None
+        opts = DummyOpts()
+    shared = DummyShared()
+
+if 'paths' not in globals():
+    print("[FLUX Script] `paths` not found, creating dummy object.")
+    class DummyPaths:
+        script_path = os.getcwd() # Default to current working directory if paths.script_path is unavailable
+        models_path = os.path.join(os.getcwd(), "models") # Default models path
+    paths = DummyPaths()
+# --- END: Dependencies Check and Dummy Definitions ---
+
 
 # --- START: TransparentVAE and related classes/functions (from user-provided vae.py) ---
-def zero_module(module): # From vae.py
+def zero_module(module): 
     for p in module.parameters():
         p.detach().zero_()
     return module
 
-class LatentTransparencyOffsetEncoder(torch.nn.Module): # From vae.py
+class LatentTransparencyOffsetEncoder(torch.nn.Module): 
     def __init__(self, latent_c=4, *args, **kwargs): 
         super().__init__(*args, **kwargs)
         self.blocks = torch.nn.Sequential(
@@ -96,7 +114,7 @@ class LatentTransparencyOffsetEncoder(torch.nn.Module): # From vae.py
         )
     def forward(self, x): return self.blocks(x)
 
-class UNet1024(ModelMixin, ConfigMixin): # From vae.py
+class UNet1024(ModelMixin, ConfigMixin): 
     @register_to_config
     def __init__(
         self, in_channels: int = 3, out_channels: int = 4, 
@@ -109,7 +127,6 @@ class UNet1024(ModelMixin, ConfigMixin): # From vae.py
         norm_eps: float = 1e-5, latent_c: int = 4,
     ):
         super().__init__()
-        # Ensure diffusers components are available before using them
         if not DIFFUSERS_AVAILABLE:
             print("[UNet1024] Diffusers not available, U-Net cannot be properly initialized.")
             return 
@@ -157,7 +174,7 @@ class UNet1024(ModelMixin, ConfigMixin): # From vae.py
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
 
     def forward(self, x, latent):
-        if not DIFFUSERS_AVAILABLE: # Should not happen if checks are done before calling
+        if not DIFFUSERS_AVAILABLE: 
             raise RuntimeError("UNet1024 called but diffusers components are not available.")
         sample_latent = self.latent_conv_in(latent)
         sample = self.conv_in(x)
@@ -177,9 +194,9 @@ class UNet1024(ModelMixin, ConfigMixin): # From vae.py
         sample = self.conv_out(sample)
         return sample
 
-def checkerboard(shape): return np.indices(shape).sum(axis=0) % 2 # From vae.py
+def checkerboard(shape): return np.indices(shape).sum(axis=0) % 2 
 
-def build_alpha_pyramid(color, alpha, dk=1.2): # From vae.py
+def build_alpha_pyramid(color, alpha, dk=1.2): 
     pyramid = []
     current_premultiplied_color = color * alpha
     current_alpha = alpha
@@ -192,7 +209,7 @@ def build_alpha_pyramid(color, alpha, dk=1.2): # From vae.py
         current_alpha = current_alpha_resized[:, :, None] if current_alpha_resized.ndim == 2 else current_alpha_resized
     return pyramid[::-1]
 
-def pad_rgb(np_rgba_hwc_uint8): # From vae.py
+def pad_rgb(np_rgba_hwc_uint8): 
     np_rgba_hwc = np_rgba_hwc_uint8.astype(np.float32) / 255.0
     color = np_rgba_hwc[..., :3]
     alpha = np_rgba_hwc[..., 3:4]
@@ -203,7 +220,6 @@ def pad_rgb(np_rgba_hwc_uint8): # From vae.py
     for layer_c, layer_a in pyramid:
         layer_h, layer_w, _ = layer_c.shape
         fg_resized = cv2.resize(fg, (layer_w, layer_h), interpolation=cv2.INTER_LINEAR)
-        # Ensure fg has 3 channels after resize, especially if it was 1,1,3 and became 1,1 due to single value
         if fg_resized.ndim == 2 : fg_resized = fg_resized[:,:,np.newaxis]
         if fg_resized.shape[2] == 1 and layer_c.shape[2] == 3: fg_resized = np.repeat(fg_resized, 3, axis=2)
 
@@ -211,11 +227,11 @@ def pad_rgb(np_rgba_hwc_uint8): # From vae.py
         fg = layer_c + fg * (1.0 - layer_a)
     return (fg * 255.0).clip(0, 255).astype(np.uint8)
 
-def dist_sample_deterministic(dist: DiagonalGaussianDistribution, perturbation: torch.Tensor): # From vae.py
+def dist_sample_deterministic(dist: DiagonalGaussianDistribution, perturbation: torch.Tensor): 
     x = dist.mean + dist.std * perturbation.to(dist.std.device, dtype=dist.std.dtype)
     return x
 
-class TransparentVAE(torch.nn.Module): # From vae.py
+class TransparentVAE(torch.nn.Module): 
     def __init__(self, sd_vae, dtype=torch.float16, encoder_file=None, decoder_file=None, alpha=300.0, latent_c=4):
         super().__init__()
         self.dtype = dtype
@@ -279,7 +295,6 @@ class TransparentVAE(torch.nn.Module): # From vae.py
         offset = self.encoder(offset_feed) * self.alpha
         latent_sampled = dist_sample_deterministic(dist=latent_dist, perturbation=offset) if use_offset else latent_dist.sample()
         
-        # Flux VAE does not use shift_factor, only scaling_factor.
         latent = latent_sampled * self.sd_vae.config.scaling_factor 
         return latent
 
@@ -296,7 +311,7 @@ class TransparentVAE(torch.nn.Module): # From vae.py
                 feed_latent = torch.flip(feed_latent, dims=(3,))
             feed_pixel = torch.rot90(feed_pixel, k=rok, dims=(2, 3))
             feed_latent = torch.rot90(feed_latent, k=rok, dims=(2, 3))
-            eps = self.decoder(feed_pixel, feed_latent) # This call needs to be on dec_device
+            eps = self.decoder(feed_pixel, feed_latent) 
             eps = torch.rot90(eps, k=-rok, dims=(2, 3))
             if flip: eps = torch.flip(eps, dims=(3,))
             result.append(eps)
@@ -305,7 +320,7 @@ class TransparentVAE(torch.nn.Module): # From vae.py
         return median
 # --- END: TransparentVAE ---
 
-# --- START: run_layerdiffuse function (YOUR FULL FUNCTION - PASTED FROM PREVIOUS MESSAGE) ---
+# --- START: run_layerdiffuse function ---
 def run_layerdiffuse(
     flux_model_id_or_path, vae_path_transparent, lora_path_layerdiffuse, 
     clip_encoder_path, t5_encoder_path,
@@ -316,7 +331,6 @@ def run_layerdiffuse(
     print(f"  [FLUX Script] Flux Model: {flux_model_id_or_path}")
     print(f"  [FLUX Script] TransparentVAE Path: {vae_path_transparent}")
     print(f"  [FLUX Script] LayerLoRA Path: {lora_path_layerdiffuse}, Strength: {lora_strength}")
-    # ... other initial param prints ...
 
     if not DIFFUSERS_AVAILABLE or not SAFETENSORS_AVAILABLE:
         err_img = Image.new("RGB", (width, height), color="maroon")
@@ -334,6 +348,34 @@ def run_layerdiffuse(
     is_img2img = input_image_pil is not None
     mode_name = "Image-to-Image" if is_img2img else "Text-to-Image"
     print(f"  [FLUX Script] Mode: {mode_name}")
+
+    # --- Path Setup for Saving Images ---
+    base_output_dir = ""
+    if is_img2img:
+        if hasattr(shared, 'opts') and hasattr(shared.opts, 'outdir_img2img_samples') and shared.opts.outdir_img2img_samples:
+            base_output_dir = shared.opts.outdir_img2img_samples
+        else:
+            # Fallback if shared.opts.outdir_img2img_samples is not set or shared/opts is not available
+            forge_root_for_save = paths.script_path if hasattr(paths, 'script_path') and paths.script_path else os.getcwd()
+            base_output_dir = os.path.join(forge_root_for_save, "outputs", "img2img-images")
+    else: # txt2img
+        if hasattr(shared, 'opts') and hasattr(shared.opts, 'outdir_txt2img_samples') and shared.opts.outdir_txt2img_samples:
+            base_output_dir = shared.opts.outdir_txt2img_samples
+        else:
+            forge_root_for_save = paths.script_path if hasattr(paths, 'script_path') and paths.script_path else os.getcwd()
+            base_output_dir = os.path.join(forge_root_for_save, "outputs", "txt2img-images")
+
+    final_save_dir = os.path.join(base_output_dir, "FluxZayn")
+    print(f"  [FLUX Script] Base output directory: {base_output_dir}")
+    print(f"  [FLUX Script] Attempting to save images to: {final_save_dir}")
+
+    try:
+        os.makedirs(final_save_dir, exist_ok=True)
+        print(f"  [FLUX Script] Ensured save directory exists: {final_save_dir}")
+    except OSError as e_mkdir:
+        print(f"  [FLUX Script] ERROR creating save directory {final_save_dir}: {e_mkdir}. Images will not be saved.")
+        final_save_dir = None 
+    # --- End Path Setup ---
 
     def create_error_image(message):
         err_img = Image.new("RGB", (width, height), color="red")
@@ -364,13 +406,12 @@ def run_layerdiffuse(
             pipe.text_encoder_2.load_state_dict(load_safetensors(t5_encoder_path, device="cpu"), strict=False)
         if lora_path_layerdiffuse and os.path.isfile(lora_path_layerdiffuse):
             print(f"  [FLUX Script] Loading Layer LoRA from: {lora_path_layerdiffuse}")
-            pipe.load_lora_weights(lora_path_layerdiffuse, lora_scale=float(lora_strength)) # Scale applied at call time
+            pipe.load_lora_weights(lora_path_layerdiffuse, lora_scale=float(lora_strength)) 
 
         if vae_path_transparent and os.path.isfile(vae_path_transparent) and pipe.vae is not None:
             print(f"  [FLUX Script] Initializing TransparentVAE with: {vae_path_transparent}")
             try:
                 vae_latent_channels = pipe.vae.config.latent_channels if hasattr(pipe.vae, 'config') and hasattr(pipe.vae.config, 'latent_channels') else 4
-                # Assuming TransparentVAE, LatentTransparencyOffsetEncoder, UNet1024 are defined globally in this script
                 trans_vae_instance = TransparentVAE(sd_vae=pipe.vae, dtype=dtype, latent_c=vae_latent_channels)
                 tvae_state_dict = load_safetensors(vae_path_transparent, device="cpu") if vae_path_transparent.endswith('.safetensors') else torch.load(vae_path_transparent, map_location="cpu")
                 trans_vae_instance.load_state_dict(tvae_state_dict, strict=False)
@@ -384,17 +425,12 @@ def run_layerdiffuse(
         print(f"  [FLUX Script] Models moved to {device}.")
         pipe.enable_model_cpu_offload()
         
-        # MODIFIED: Using pipeline's default scheduler
-        # schedulers_map = {"Euler": EulerDiscreteScheduler, "Euler Ancestral": EulerAncestralDiscreteScheduler, "LMS": LMSDiscreteScheduler, "DDIM": DDIMScheduler}
-        # scheduler_class = schedulers_map.get(sampler_name, EulerDiscreteScheduler)
-        # if scheduler_class is not object and hasattr(pipe, 'scheduler'): pipe.scheduler = scheduler_class.from_config(pipe.scheduler.config)
-        # print(f"  [FLUX Script] Using scheduler: {sampler_name}")
         print(f"  [FLUX Script] Using pipeline's default scheduler (handles 'mu' parameter correctly)")
 
         all_output_images_with_labels = []
         for i in range(image_count):
             current_seed = effective_seed + i
-            image_generator = torch.Generator(device=device).manual_seed(current_seed) # Ensure generator is on target device
+            image_generator = torch.Generator(device=device).manual_seed(current_seed)
             print(f"  [FLUX Script] Image {i+1}/{image_count}, Seed: {current_seed}")
 
             call_params = {
@@ -402,8 +438,6 @@ def run_layerdiffuse(
                 "width": width, "height": height, "num_inference_steps": num_inference_steps,
                 "guidance_scale": guidance_scale, "generator": image_generator,
             }
-            #if lora_path_layerdiffuse and os.path.isfile(lora_path_layerdiffuse):
-                # call_params["lora_scale"] = lora_strength
             
             if is_img2img:
                 call_params["strength"] = img2img_strength
@@ -413,8 +447,8 @@ def run_layerdiffuse(
                         input_pil_rgba = input_image_pil.convert("RGBA")
                         img_rgba_01_bchw = transforms.ToTensor()(input_pil_rgba).unsqueeze(0).to(device=device, dtype=dtype)
                         
-                        img_rgb_prem_01 = img_rgba_01_bchw[:, :3] * img_rgba_01_bchw[:, 3:4] # Alpha premultiply
-                        img_rgb_m11_bchw = (img_rgb_prem_01 * 2.0 - 1.0) # Normalize for SD VAE
+                        img_rgb_prem_01 = img_rgba_01_bchw[:, :3] * img_rgba_01_bchw[:, 3:4] 
+                        img_rgb_m11_bchw = (img_rgb_prem_01 * 2.0 - 1.0) 
 
                         rgba_np_hwc_uint8 = (img_rgba_01_bchw.squeeze(0).permute(1,2,0) * 255).byte().cpu().numpy()
                         padded_rgb_np_hwc_uint8 = pad_rgb(rgba_np_hwc_uint8) 
@@ -439,18 +473,32 @@ def run_layerdiffuse(
             unpacked_latents = pipe._unpack_latents(output_latents, height, width, pipe.vae_scale_factor)
             denormalized_latents = (unpacked_latents / pipe.vae.config.scaling_factor)
             if hasattr(pipe.vae.config, "shift_factor") and pipe.vae.config.shift_factor != 0:
-                 denormalized_latents += pipe.vae.config.shift_factor # Add back shift if present (FLUX VAE usually doesn't)
+                 denormalized_latents += pipe.vae.config.shift_factor
             
-            final_images_pil = []
+            generated_pil_images_for_this_seed = []
+            label_prefix = ""
+
             if trans_vae_instance:
                 print("  [FLUX Script] Decoding with TransparentVAE")
                 try:
                     with torch.no_grad():
-                        # Pass latents to the device of the TransparentVAE decoder
                         tvae_dec_device = next(trans_vae_instance.decoder.parameters()).device
                         _, decoded_rgba_01 = trans_vae_instance.decode(denormalized_latents.to(tvae_dec_device, trans_vae_instance.dtype), aug=True)
-                    for single_rgba_t in decoded_rgba_01: # B, C, H, W
-                        final_images_pil.append(transforms.ToPILImage()(single_rgba_t.cpu().float().clamp(0,1)))
+                    
+                    for idx_in_batch, single_rgba_t in enumerate(decoded_rgba_01):
+                        pil_image = transforms.ToPILImage()(single_rgba_t.cpu().float().clamp(0,1))
+                        generated_pil_images_for_this_seed.append(pil_image)
+                        
+                        if final_save_dir: # Check if directory creation was successful
+                            current_date_str = datetime.datetime.now().strftime("%d%m%Y")
+                            filename_suffix = f"_{idx_in_batch}" if len(decoded_rgba_01) > 1 else ""
+                            filename = f"FluxZayn_{current_date_str}_{current_seed}{filename_suffix}.png"
+                            save_path = os.path.join(final_save_dir, filename)
+                            try:
+                                pil_image.save(save_path)
+                                print(f"  [FLUX Script] Saved layered image to: {save_path}")
+                            except Exception as e_save:
+                                print(f"  [FLUX Script] ERROR saving image {save_path}: {e_save}")
                     label_prefix = "Layered"
                 except Exception as e_dec:
                     print(f"  [FLUX Script] TVAE Decode error: {e_dec}\n{traceback.format_exc()}")
@@ -460,11 +508,24 @@ def run_layerdiffuse(
                 with torch.no_grad():
                     decoded_rgb_m11 = pipe.vae.decode(denormalized_latents.to(pipe.vae.dtype)).sample
                 decoded_rgb_01 = (decoded_rgb_m11 / 2 + 0.5).clamp(0, 1)
-                for single_rgb_t in decoded_rgb_01: # B, C, H, W
-                    final_images_pil.append(transforms.ToPILImage()(single_rgb_t.cpu()))
+                
+                for idx_in_batch, single_rgb_t in enumerate(decoded_rgb_01):
+                    pil_image = transforms.ToPILImage()(single_rgb_t.cpu())
+                    generated_pil_images_for_this_seed.append(pil_image)
+
+                    if final_save_dir: # Check if directory creation was successful
+                        current_date_str = datetime.datetime.now().strftime("%d%m%Y")
+                        filename_suffix = f"_{idx_in_batch}" if len(decoded_rgb_01) > 1 else ""
+                        filename = f"FluxZayn_{current_date_str}_{current_seed}{filename_suffix}.png"
+                        save_path = os.path.join(final_save_dir, filename)
+                        try:
+                            pil_image.save(save_path)
+                            print(f"  [FLUX Script] Saved composite image to: {save_path}")
+                        except Exception as e_save:
+                            print(f"  [FLUX Script] ERROR saving image {save_path}: {e_save}")
                 label_prefix = "Composite"
             
-            all_output_images_with_labels.extend([(img, f"{label_prefix} (Seed {current_seed})") for img in final_images_pil])
+            all_output_images_with_labels.extend([(img, f"{label_prefix} (Seed {current_seed})") for img in generated_pil_images_for_this_seed])
         
         if not all_output_images_with_labels: return create_error_image("No images produced.")
         print(f"--- [FLUX Script] Generation Finished. Items: {len(all_output_images_with_labels)} ---")
@@ -479,20 +540,39 @@ def run_layerdiffuse(
 # --- END: run_layerdiffuse function ---
 
 # --- START: UI Code (Pasted from your flux_layerdiffuse_ui.py) ---
-# Helper function from original UI file
-def get_default_model_path_for_script(model_type_dir, filename): # Renamed
-    if hasattr(paths, 'models_path'): 
+def get_default_model_path_for_script(model_type_dir, filename): 
+    if hasattr(paths, 'models_path') and paths.models_path: 
         potential_path = os.path.join(paths.models_path, model_type_dir, filename)
         if os.path.exists(potential_path):
             return potential_path
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    ext_root = os.path.dirname(script_dir) 
-    forge_root = os.path.dirname(ext_root) 
-    potential_path = os.path.join(forge_root, "models", model_type_dir, filename)
-    if os.path.exists(potential_path): return potential_path
+    # Fallback if paths.models_path is not available or model not found there
+    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    # Try to find a 'models' directory relative to where the script might be in an extension structure
+    # For Forge, an extension is usually two levels down from the root (e.g. forge_root/extensions/my_extension/scripts/script.py)
+    # Or it could be run from forge_root/scripts/ if it's a built-in script
+    
+    # Heuristic: Go up two levels from script_dir, then look for 'models'
+    # This is a common structure for extensions in Forge/A1111
+    possible_forge_root = os.path.dirname(os.path.dirname(script_dir))
+    potential_path_forge_style = os.path.join(possible_forge_root, "models", model_type_dir, filename)
+    if os.path.exists(potential_path_forge_style):
+        return potential_path_forge_style
+
+    # If paths.script_path is available (often root of WebUI)
+    if hasattr(paths, 'script_path') and paths.script_path:
+         potential_path_from_script_path = os.path.join(paths.script_path, "models", model_type_dir, filename)
+         if os.path.exists(potential_path_from_script_path):
+             return potential_path_from_script_path
+             
+    # Absolute fallback to a 'models' folder in the current working directory if all else fails
+    # This is less likely to be correct in a full WebUI setup but provides a last resort
+    potential_path_cwd = os.path.join(os.getcwd(), "models", model_type_dir, filename)
+    if os.path.exists(potential_path_cwd):
+        return potential_path_cwd
+        
     return ""
 
-# Status update wrapper from original UI file, adapted
+
 def run_layerdiffuse_with_status_update_for_script( 
     p_flux_model_id_or_path, p_vae_path_transparent, p_lora_path_layerdiffuse, 
     p_clip_encoder_path, p_t5_encoder_path,
@@ -503,7 +583,6 @@ def run_layerdiffuse_with_status_update_for_script(
     yield [], "Processing... (FLUX LayerDiffuse Script). Check console for progress."
     
     try:
-        # This now calls the main run_layerdiffuse defined *above* in this same script
         results = run_layerdiffuse(
             p_flux_model_id_or_path, p_vae_path_transparent, p_lora_path_layerdiffuse,
             p_clip_encoder_path, p_t5_encoder_path,
@@ -512,7 +591,9 @@ def run_layerdiffuse_with_status_update_for_script(
             p_image_count, p_seed, p_lora_strength, p_img2img_strength
         )
         
-        if results and isinstance(results, list) and len(results) > 0 and            isinstance(results[0], tuple) and len(results[0]) == 2 and            isinstance(results[0][0], Image.Image) and "Error:" in results[0][1]:
+        if results and isinstance(results, list) and len(results) > 0 and \
+           isinstance(results[0], tuple) and len(results[0]) == 2 and \
+           isinstance(results[0][0], Image.Image) and "Error:" in results[0][1]:
             yield results, results[0][1]
         elif not results:
              err_img = Image.new("RGB", (p_width, p_height), color="orange")
@@ -526,7 +607,6 @@ def run_layerdiffuse_with_status_update_for_script(
         error_message_for_status = f"Error: {str(e)}. Check console for details."
         yield [(error_img, f"UI Error: {str(e)}")], error_message_for_status
 
-# Main UI definition from original UI file, adapted
 DEFAULT_TRANSPARENT_VAE_NAME_SCRIPT = "TransparentVAE.safetensors"
 DEFAULT_LAYERDIFFUSE_MODEL_DIR_SCRIPT = "LayerDiffuse" 
 
@@ -534,7 +614,7 @@ def create_flux_layerdiffuse_tab_internal_script():
     print("[FLUX LayerDiffuse Script] Creating UI tab (internal_script function).")
     default_tvae_path = get_default_model_path_for_script(DEFAULT_LAYERDIFFUSE_MODEL_DIR_SCRIPT, DEFAULT_TRANSPARENT_VAE_NAME_SCRIPT)
 
-    with gr.Blocks(analytics_enabled=False) as flux_ld_interface_script: # Use a unique var name
+    with gr.Blocks(analytics_enabled=False) as flux_ld_interface_script: 
         gr.HTML("<div style='text-align: center; margin-bottom: 20px;'><h1>FluxZayn LayerDiffusion by DarkForce </h1></div>")
 
         with gr.Row():
@@ -543,21 +623,21 @@ def create_flux_layerdiffuse_tab_internal_script():
                     with gr.TabItem("Models & Paths"):
                         with gr.Group():
                             gr.Markdown("### FLUX Model")
-                            flux_model_id_or_path_ui = gr.Textbox( # Added _ui suffix
-                                label="FLUX Model Directory or HuggingFace ID", # Emphasize directory
+                            flux_model_id_or_path_ui = gr.Textbox( 
+                                label="FLUX Model Directory or HuggingFace ID", 
                                 placeholder="e.g., black-forest-labs/FLUX.1-dev or /path/to/flux_model_dir",
                                 value="black-forest-labs/FLUX.1-dev", 
                                 info="Path to local FLUX model directory (not single file) or a HuggingFace model ID."
                             )
                         with gr.Group():
                             gr.Markdown("### Layer Generation Assets")
-                            vae_path_transparent_ui = gr.Textbox( # Renamed for clarity
+                            vae_path_transparent_ui = gr.Textbox( 
                                 label="TransparentVAE Weights Path (.safetensors or .pth)", 
                                 placeholder=f"e.g., models/{DEFAULT_LAYERDIFFUSE_MODEL_DIR_SCRIPT}/{DEFAULT_TRANSPARENT_VAE_NAME_SCRIPT}",
-                                value=default_tvae_path, # Use var defined in this function
+                                value=default_tvae_path, 
                                 info=f"Path to TransparentVAE weights. Expected in models/{DEFAULT_LAYERDIFFUSE_MODEL_DIR_SCRIPT}/ by default."
                             )
-                            lora_path_layerdiffuse_ui = gr.Textbox( # Renamed for clarity
+                            lora_path_layerdiffuse_ui = gr.Textbox( 
                                 label="Layer LoRA Path (.safetensors)", 
                                 placeholder="e.g., /path/to/your/layer_lora.safetensors",
                                 value="",
@@ -589,12 +669,11 @@ def create_flux_layerdiffuse_tab_internal_script():
                         with gr.Row():
                             num_inference_steps_ui = gr.Slider(label="Inference Steps", minimum=1, maximum=100, step=1, value=28)
                             guidance_scale_ui = gr.Slider(label="CFG Scale", minimum=0.0, maximum=20.0, step=0.1, value=4.0)
-                        # sampler_name_ui = gr.Dropdown(label="Sampler", choices=["Euler", "Euler Ancestral", "LMS", "DDIM"], value="Euler") # MODIFIED: Sampler UI removed
                         with gr.Row():
                             image_count_ui = gr.Slider(label="Number of Images", minimum=1, maximum=16, step=1, value=1)
                             seed_ui = gr.Number(label="Seed", value=-1, precision=0, info="-1 or 0 for random seed.")
                     with gr.TabItem("Image-to-Image"):
-                        input_image_pil_ui = gr.Image(label="Input Image (for Img2Img, RGBA recommended)", type="pil", image_mode="RGBA", height=300) # Changed to RGBA
+                        input_image_pil_ui = gr.Image(label="Input Image (for Img2Img, RGBA recommended)", type="pil", image_mode="RGBA", height=300) 
                         img2img_strength_ui = gr.Slider(
                             label="Denoising Strength (for Img2Img)",
                             minimum=0.0, maximum=1.0, step=0.01, value=0.70,
@@ -605,7 +684,7 @@ def create_flux_layerdiffuse_tab_internal_script():
             with gr.Column(scale=3): 
                 output_gallery_ui = gr.Gallery(
                     label="Generated Images & Layers", show_label=True, elem_id="flux_ld_gallery_output_script",
-                    columns=1, height="auto", object_fit="contain", preview=True # Changed to 1 column for potentially larger RGBA images
+                    columns=1, height="auto", object_fit="contain", preview=True 
                 )
                 gr.Markdown("### Notes & Tips")
                 gr.Markdown(
@@ -615,11 +694,10 @@ def create_flux_layerdiffuse_tab_internal_script():
                     "- **Performance:** FLUX models often perform well with fewer steps (20-30) and lower CFG (3-5)."
                 )
         
-        # Match parameter names with run_layerdiffuse_with_status_update_for_script
         inputs_list_ui = [
             flux_model_id_or_path_ui, vae_path_transparent_ui, lora_path_layerdiffuse_ui, 
             clip_encoder_path_ui, t5_encoder_path_ui,
-            prompt_ui, neg_prompt_ui, input_image_pil_ui, # Use the PIL image input here
+            prompt_ui, neg_prompt_ui, input_image_pil_ui, 
             width_ui, height_ui, num_inference_steps_ui, guidance_scale_ui,
             image_count_ui, seed_ui, lora_strength_ui, img2img_strength_ui
         ]
@@ -633,7 +711,7 @@ def create_flux_layerdiffuse_tab_internal_script():
 # --- END: UI Code ---
 
 # --- START: Tab Registration Logic ---
-def on_ui_tabs_for_flux_script(): # Renamed
+def on_ui_tabs_for_flux_script(): 
     print("[FLUX LayerDiffuse Script] on_ui_tabs_for_flux_script callback invoked.")
     try:
         if not DIFFUSERS_AVAILABLE or not SAFETENSORS_AVAILABLE: 
