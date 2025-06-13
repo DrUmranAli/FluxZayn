@@ -1,14 +1,12 @@
-# FluxZayn
-FluxZayn LayerDiffusion
-# FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
+# FluxZayn: FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
 
-This extension integrates FLUX-based image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
+This extension integrates FLUX.1-dev image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
 
-This repo is a Forge version implementation of LayerDiffuse-Flux (https://github.com/RedAIGC/Flux-version-LayerDiffuse)
+This repo is a Forge extension implementation of LayerDiffuse-Flux (https://github.com/RedAIGC/Flux-version-LayerDiffuse)
 
 ## Features
 
--   FLUX Model Support (Text-to-Image and Image-to-Image).
+-   FLUX.1-dev Model Support (Text-to-Image and Image-to-Image).
 -   **Layer Separation using TransparentVAE:**
     -   Decodes final latents through a custom TransparentVAE for RGBA output.
     -   For Img2Img, can encode RGBA input through TransparentVAE for layered diffusion.
@@ -29,11 +27,11 @@ This repo is a Forge version implementation of LayerDiffuse-Flux (https://github
         *   In the UI ("FLUX Model Directory/ID"), provide a **path to a local FLUX model directory** (e.g., a full download of `black-forest-labs/FLUX.1-dev`) OR a **HuggingFace Model ID**.
         *   **Important:** This should NOT be a path to a single `.safetensors` file for the base FLUX model.
     *   **TransparentVAE Weights:**
-        *   Download `TransparentVAE.safetensors` (or a compatible `.pth` file).
+        *   Download `TransparentVAE.safetensors` (or a compatible `.pth` file). I have converted the original TransparentVAE from (https://huggingface.co/RedAIGC/Flux-version-LayerDiffuse)
         *   It's recommended to place it in `stable-diffusion-webui-forge/models/LayerDiffuse/`. The UI will default to looking here.
         *   Provide the full path to this file in the UI ("TransparentVAE Weights Path").
     *   **Layer LoRA (Optional but Recommended for Best Layer Effects):**
-        *   Obtain a `layerlora.safetensors` file compatible with FLUX and LayerDiffuse principles.
+        *   Download the `layerlora.safetensors` file compatible with FLUX and LayerDiffuse principles (https://huggingface.co/RedAIGC/Flux-version-LayerDiffuse/tree/main)
         *   Provide its path in the UI ("LayerLoRA Path").
 
 4.  **Restart Stable Diffusion WebUI Forge.**
