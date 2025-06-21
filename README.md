@@ -42,10 +42,10 @@ This repo is a Forge extension implementation of LayerDiffuse-Flux (https://gith
 2.  **Setup Models:**
     *   Verify "FLUX Model Directory/ID" points to a valid FLUX model directory or a HuggingFace repository ID.
     *   Set "TransparentVAE Weights Path" to your `TransparentVAE.safetensors` or `.pth` file.
-    *   Optionally, set "Layer LoRA Path" and adjust its strength.
-3.  **Generation Parameters:** Configure prompt, negative prompt, image dimensions, inference steps, CFG scale, sampler, and seed.
+    *   Set "Layer LoRA Path" and adjust its strength.
+3.  **Generation Parameters:** Configure prompt, image dimensions, inference steps, CFG scale, sampler, and seed.
     *   *Tip:* FLUX models often perform well with fewer inference steps (e.g., 20-30) and lower CFG scales (e.g., 3.0-5.0) compared to standard Stable Diffusion models.
-4.  **Image-to-Image (Optional):**
+4.  **Image-to-Image (Currently broken):**
     *   Upload an input image. For best results with TransparentVAE's encoding capabilities (to preserve and diffuse existing alpha/layers), provide an **RGBA** image.
     *   Adjust "Denoising Strength".
 5.  Click the "Generate Images" button.
