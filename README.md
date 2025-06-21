@@ -1,12 +1,12 @@
 # FluxZayn: FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
 
-This extension integrates FLUX.1-dev image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
+This extension integrates FLUX.1 image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
 
 This repo is a Forge extension implementation of LayerDiffuse-Flux (https://github.com/RedAIGC/Flux-version-LayerDiffuse)
 
 ## Features
 
--   FLUX.1-dev Model Support (Text-to-Image and Image-to-Image).
+-   FLUX.1-dev and FLUX.1-schnell Model Support (Text-to-Image and Image-to-Image).
 -   **Layer Separation using TransparentVAE:**
     -   Decodes final latents through a custom TransparentVAE for RGBA output.
     -   For Img2Img, can encode RGBA input through TransparentVAE for layered diffusion.
