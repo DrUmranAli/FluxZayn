@@ -6,12 +6,14 @@ This repo is a Forge extension implementation of LayerDiffuse-Flux (https://gith
 
 ## Features
 
--   FLUX.1-dev and FLUX.1-schnell Model Support (Text-to-Image and Image-to-Image).
+-   FLUX.1-dev and FLUX.1-schnell Model Support (Text-to-Image).
 -   **Layer Separation using TransparentVAE:**
     -   Decodes final latents through a custom TransparentVAE for RGBA output.
-    -   For Img2Img, can encode RGBA input through TransparentVAE for layered diffusion.
+    -   (Currently Broken) For Img2Img, can encode RGBA input through TransparentVAE for layered diffusion.
 -   Support for LayerLoRA.
--   Configurable generation parameters.
+-   Configurable generation parameters(i.e. height, width, cfg, seed...)
+-   Automatic .PNG image file saved to /webui/output/txt2img-images/FluxZayn folder with unique filename(inc date/seed)
+-   Generation parameters automatically saved in generated PNG image metadata
 
 ## Installation
 
@@ -58,4 +60,4 @@ This repo is a Forge extension implementation of LayerDiffuse-Flux (https://gith
 -   **Img2Img with RGBA:** If using Img2Img and you want to properly utilize TransparentVAE's encoding for layered input, ensure your uploaded image is in RGBA format. The script attempts to handle this, but native RGBA input is best.
 -   **Console Logs:** Check the WebUI Forge console for `[FLUX Script]` messages. They provide verbose logging about the model loading and generation process, which can be helpful for debugging.
 -   This integration is advanced. If issues arise, carefully check paths and console output.
--   Tested with WebUI Forge v
+-   Tested with WebUI Forge vf2.0.1v1.10.1
