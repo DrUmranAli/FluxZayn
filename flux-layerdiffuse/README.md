@@ -1,16 +1,21 @@
+# FluxZayn: FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
 
-# FLUX LayerDiffuse Extension for Stable Diffusion WebUI Forge
+This extension integrates FLUX.1 image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
 
-This extension integrates FLUX-based image generation with LayerDiffuse capabilities (using TransparentVAE) into SD WebUI Forge.
+This repo is a Forge extension implementation of LayerDiffuse-Flux (https://github.com/RedAIGC/Flux-version-LayerDiffuse)
 
 ## Features
 
--   FLUX Model Support (Text-to-Image and Image-to-Image).
+![screenshot](https://github.com/DrUmranAli/FluxZayn/blob/main/examples/example%20gen.png)
+
+-   FLUX.1-dev and FLUX.1-schnell Model Support (Text-to-Image).
 -   **Layer Separation using TransparentVAE:**
     -   Decodes final latents through a custom TransparentVAE for RGBA output.
-    -   For Img2Img, can encode RGBA input through TransparentVAE for layered diffusion.
+    -   (Currently Broken) For Img2Img, can encode RGBA input through TransparentVAE for layered diffusion.
 -   Support for LayerLoRA.
--   Configurable generation parameters.
+-   Configurable generation parameters(i.e. height, width, cfg, seed...)
+-   Automatic .PNG image file saved to /webui/output/txt2img-images/FluxZayn folder with unique filename(inc date/seed)
+-   Generation parameters automatically saved in generated PNG image metadata
 
 ## Installation
 
@@ -26,11 +31,11 @@ This extension integrates FLUX-based image generation with LayerDiffuse capabili
         *   In the UI ("FLUX Model Directory/ID"), provide a **path to a local FLUX model directory** (e.g., a full download of `black-forest-labs/FLUX.1-dev`) OR a **HuggingFace Model ID**.
         *   **Important:** This should NOT be a path to a single `.safetensors` file for the base FLUX model.
     *   **TransparentVAE Weights:**
-        *   Download `TransparentVAE.safetensors` (or a compatible `.pth` file).
+        *   Download `TransparentVAE.safetensors` (or a compatible `.pth` file). I have converted the original TransparentVAE from (https://huggingface.co/RedAIGC/Flux-version-LayerDiffuse)
         *   It's recommended to place it in `stable-diffusion-webui-forge/models/LayerDiffuse/`. The UI will default to looking here.
         *   Provide the full path to this file in the UI ("TransparentVAE Weights Path").
     *   **Layer LoRA (Optional but Recommended for Best Layer Effects):**
-        *   Obtain a `layerlora.safetensors` file compatible with FLUX and LayerDiffuse principles.
+        *   Download the `layerlora.safetensors` file compatible with FLUX and LayerDiffuse principles (https://huggingface.co/RedAIGC/Flux-version-LayerDiffuse/tree/main)
         *   Provide its path in the UI ("LayerLoRA Path").
 
 4.  **Restart Stable Diffusion WebUI Forge.**
@@ -41,19 +46,24 @@ This extension integrates FLUX-based image generation with LayerDiffuse capabili
 2.  **Setup Models:**
     *   Verify "FLUX Model Directory/ID" points to a valid FLUX model directory or a HuggingFace repository ID.
     *   Set "TransparentVAE Weights Path" to your `TransparentVAE.safetensors` or `.pth` file.
-    *   Optionally, set "Layer LoRA Path" and adjust its strength.
-3.  **Generation Parameters:** Configure prompt, negative prompt, image dimensions, inference steps, CFG scale, sampler, and seed.
+    *   Set "Layer LoRA Path" and adjust its strength.
+3.  **Generation Parameters:** Configure prompt, image dimensions, inference steps, CFG scale, sampler, and seed.
     *   *Tip:* FLUX models often perform well with fewer inference steps (e.g., 20-30) and lower CFG scales (e.g., 3.0-5.0) compared to standard Stable Diffusion models.
-4.  **Image-to-Image (Optional):**
+4.  **Image-to-Image (Currently broken):**
     *   Upload an input image. For best results with TransparentVAE's encoding capabilities (to preserve and diffuse existing alpha/layers), provide an **RGBA** image.
     *   Adjust "Denoising Strength".
 5.  Click the "Generate Images" button.
 6.  The output gallery should display RGBA images if TransparentVAE was successfully used for decoding.
 
+## Examples
+
+<img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/cakes.png" width="250"/> <img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/knight.png" width="250"/> <img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/Evil%20Warrior.png" width="250"/><img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/old%20woman.png" width="250"/>
+
 ## Troubleshooting & Notes
 
 -   **"FLUX Model Directory/ID" Errors:** This path *must* be to a folder containing the complete diffusers model structure for FLUX (with `model_index.json`, subfolders like `transformer`, `vae`, etc.), or a valid HuggingFace ID. It cannot be a single `.safetensors` file for the base model.
 -   **Layer Quality/Separation:** The effectiveness of layer separation heavily depends on the quality of the TransparentVAE weights and the compatibility/effectiveness of the chosen Layer LoRA.
--   **Img2Img with RGBA:** If using Img2Img and you want to properly utilize TransparentVAE's encoding for layered input, ensure your uploaded image is in RGBA format. The script attempts to handle this, but native RGBA input is best.
+-   **Img2Img with RGBA(CURRENTLY BROKEN):** If using Img2Img and you want to properly utilize TransparentVAE's encoding for layered input, ensure your uploaded image is in RGBA format. The script attempts to handle this, but native RGBA input is best.
 -   **Console Logs:** Check the WebUI Forge console for `[FLUX Script]` messages. They provide verbose logging about the model loading and generation process, which can be helpful for debugging.
 -   This integration is advanced. If issues arise, carefully check paths and console output.
+-   Tested with WebUI Forge vf2.0.1v1.10.1
