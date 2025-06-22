@@ -63,7 +63,7 @@ This repo is a Forge extension implementation of LayerDiffuse-Flux (https://gith
 
 -   **"FLUX Model Directory/ID" Errors:** This path *must* be to a folder containing the complete diffusers model structure for FLUX (with `model_index.json`, subfolders like `transformer`, `vae`, etc.), or a valid HuggingFace ID. It cannot be a single `.safetensors` file for the base model.
 -   **Layer Quality/Separation:** The effectiveness of layer separation heavily depends on the quality of the TransparentVAE weights and the compatibility/effectiveness of the chosen Layer LoRA.
--   **Img2Img with RGBA:** If using Img2Img and you want to properly utilize TransparentVAE's encoding for layered input, ensure your uploaded image is in RGBA format. The script attempts to handle this, but native RGBA input is best.
+-   **Img2Img with RGBA(CURRENTLY BROKEN):** If using Img2Img and you want to properly utilize TransparentVAE's encoding for layered input, ensure your uploaded image is in RGBA format. The script attempts to handle this, but native RGBA input is best.
 -   **Console Logs:** Check the WebUI Forge console for `[FLUX Script]` messages. They provide verbose logging about the model loading and generation process, which can be helpful for debugging.
 -   This integration is advanced. If issues arise, carefully check paths and console output.
 -   Tested with WebUI Forge vf2.0.1v1.10.1
