@@ -6,6 +6,8 @@ This repo is a Forge extension implementation of LayerDiffuse-Flux (https://gith
 
 ## Features
 
+![screenshot](https://github.com/DrUmranAli/FluxZayn/blob/main/examples/example%20gen.png)
+
 -   FLUX.1-dev and FLUX.1-schnell Model Support (Text-to-Image).
 -   **Layer Separation using TransparentVAE:**
     -   Decodes final latents through a custom TransparentVAE for RGBA output.
@@ -52,6 +54,10 @@ This repo is a Forge extension implementation of LayerDiffuse-Flux (https://gith
     *   Adjust "Denoising Strength".
 5.  Click the "Generate Images" button.
 6.  The output gallery should display RGBA images if TransparentVAE was successfully used for decoding.
+
+## Examples
+
+<img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/cakes.png" width="250"/> <img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/knight.png" width="250"/> <img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/Evil%20Warrior.png" width="250"/><img src="https://github.com/DrUmranAli/FluxZayn/blob/main/examples/old%20woman.png" width="250"/>
 
 ## Troubleshooting & Notes
 
