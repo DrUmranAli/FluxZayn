@@ -5,11 +5,11 @@ import os
 print("[FLUX LayerDiffuse] Checking and installing requirements (from install.py)...")
 
 requirements = {
-    "diffusers": "diffusers>=0.27.0", 
-    "transformers": "transformers>=4.38.0",
-    "safetensors": "safetensors>=0.4.0",
-    "accelerate": "accelerate>=0.25.0",
-    "opencv-python-headless": "opencv-python-headless" # For cv2 used in TransparentVAE
+    "diffusers": "diffusers==0.28.2", 
+    "transformers": "transformers==4.41.2",
+    "safetensors": "safetensors==0.4.3",
+    "accelerate": "accelerate==0.30.1",
+    "opencv-python-headless": "opencv-python-headless==4.9.0.80"
 }
 
 for package_name, requirement_str in requirements.items():
